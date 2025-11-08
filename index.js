@@ -16,6 +16,12 @@ app.use(bodyParser.json());
 const PORT = process.env.PORT || 3000;
 const FREE_TOKEN_LIMIT = parseInt(process.env.FREE_TOKEN_LIMIT || "100000");
 
+// 🧠 Log which model is being used
+console.log("🧠 Using OpenAI model:", process.env.OPENAI_MODEL);
+
+// 🧩 Smart model fallback
+const modelToUse = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
 // 🧠 CHAT ENDPOINT
 app.post("/api/chat", async (req, res) => {
   try {
@@ -28,26 +34,43 @@ app.post("/api/chat", async (req, res) => {
     // 🧮 Check token usage
     const usedTokens = await getTokens(userId);
     if (usedTokens >= FREE_TOKEN_LIMIT) {
-      console.log(`⚠️  User ${userId} exceeded free token limit.`);
+      console.log(`⚠️ User ${userId} exceeded free token limit.`);
       return res.status(402).json({ error: "quota_exhausted" });
     }
 
-    // ✅ GPT-5-Nano call (compatible parameters only)
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a friendly Hinglish assistant. Answer clearly, simply, and conversationally under 400 words.",
-        },
-        { role: "user", content: message },
-      ],
-      max_completion_tokens: 400, // ✅ Nano supports only this
-      // ❌ No temperature/top_p allowed for Nano
-    });
+    // ✅ Choose appropriate parameters depending on model
+    const params =
+      modelToUse.includes("gpt-5-nano")
+        ? {
+            model: modelToUse,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a helpful Hinglish assistant. Keep replies short and clear.",
+              },
+              { role: "user", content: message },
+            ],
+            max_completion_tokens: 400,
+          }
+        : {
+            model: modelToUse,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a friendly Hinglish assistant. Answer clearly, simply, and conversationally under 400 words.",
+              },
+              { role: "user", content: message },
+            ],
+            max_tokens: 400,
+            temperature: 0.8,
+          };
 
-    // 🔍 Debug log for Render
+    // 💬 Call OpenAI API
+    const completion = await openai.chat.completions.create(params);
+
+    // 🪄 Debug logging
     console.log("🔍 Raw OpenAI response:", JSON.stringify(completion, null, 2));
 
     const aiMessage =
@@ -60,14 +83,22 @@ app.post("/api/chat", async (req, res) => {
     // 💾 Save chat to Supabase
     await supabase.from("messages").insert([
       { session_id: sessionId, role: "user", content: message },
-      { session_id: sessionId, role: "assistant", content: aiMessage, tokens: tokenCount },
+      {
+        session_id: sessionId,
+        role: "assistant",
+        content: aiMessage,
+        tokens: tokenCount,
+      },
     ]);
 
     // 📊 Update token usage
     const newTotal = await addTokens(userId, tokenCount);
 
-    // 📨 Send back to frontend
-    res.json({ message: aiMessage, tokensUsed: tokenCount, totalTokens: newTotal });
+    res.json({
+      message: aiMessage,
+      tokensUsed: tokenCount,
+      totalTokens: newTotal,
+    });
   } catch (err) {
     console.error("❌ Chat endpoint error:", err);
     res.status(500).json({ error: "server_error", details: err.message });
@@ -89,7 +120,9 @@ app.post("/api/create-order", async (req, res) => {
       notes: { userId, plan },
     });
 
-    console.log(`💰 Order created for ${userId} — Plan: ${plan}, ₹${amount / 100}`);
+    console.log(
+      `💰 Order created for ${userId} — Plan: ${plan}, ₹${amount / 100}`
+    );
 
     await supabase.from("transactions").insert([
       {
@@ -110,7 +143,12 @@ app.post("/api/create-order", async (req, res) => {
 
 // 💳 RAZORPAY: Verify payment
 app.post("/api/verify-payment", async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, userId } = req.body;
+  const {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    userId,
+  } = req.body;
 
   try {
     const digest = crypto
@@ -119,7 +157,7 @@ app.post("/api/verify-payment", async (req, res) => {
       .digest("hex");
 
     if (digest !== razorpay_signature) {
-      console.warn("⚠️  Invalid Razorpay signature detected.");
+      console.warn("⚠️ Invalid Razorpay signature detected.");
       return res.status(400).json({ error: "invalid_signature" });
     }
 
@@ -128,9 +166,7 @@ app.post("/api/verify-payment", async (req, res) => {
       .update({ status: "paid", razorpay_payment_id })
       .eq("razorpay_order_id", razorpay_order_id);
 
-    // 🎁 Add bonus tokens post-payment
-    await addTokens(userId, 200000);
-
+    await addTokens(userId, 200000); // Add bonus tokens
     console.log(`✅ Payment verified for user ${userId}. Tokens upgraded.`);
 
     res.json({ success: true });
