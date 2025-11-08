@@ -157,7 +157,7 @@ const completion = await openai.chat.completions.create({
     { role: "system", content: "You are a Hinglish chat assistant. Answer clearly, concisely, and friendly in Hinglish." },
     { role: "user", content: message },
   ],
-  max_completion_tokens: 500,
+  max_completion_tokens: 400,
   temperature: 0.8, // 🔥 adds creativity, helps avoid null replies
   top_p: 1,
 });
