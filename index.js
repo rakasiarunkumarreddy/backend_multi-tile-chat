@@ -151,14 +151,17 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // 🤖 Call OpenAI
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL,
-      messages: [
-        { role: "system", content: "You are a Hinglish chat assistant." },
-        { role: "user", content: message },
-      ],
-      max_completion_tokens: 400, // ✅ fixed for GPT-5-Nano
-    });
+const completion = await openai.chat.completions.create({
+  model: process.env.OPENAI_MODEL,
+  messages: [
+    { role: "system", content: "You are a Hinglish chat assistant. Answer clearly, concisely, and friendly in Hinglish." },
+    { role: "user", content: message },
+  ],
+  max_completion_tokens: 400,
+  temperature: 0.8, // 🔥 adds creativity, helps avoid null replies
+  top_p: 1,
+});
+
 
     const aiMessage = completion.choices?.[0]?.message?.content || "Mujhe samajh nahi aaya.";
     const tokenCount = completion.usage?.total_tokens || 0;
